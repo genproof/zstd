@@ -118,7 +118,7 @@ size_t FSE_readNCount_body(short* normalizedCounter, unsigned* maxSVPtr, unsigne
              * because we already memset the whole buffer to 0.
              */
 
-            if (LIKELY(ip <= iend-7) || (ip + (bitCount>>3) <= iend-4)) {
+            if (LIKELY(ip <= iend-7) || ((bitCount>>3) <= (iend-4) - ip)) {   /* genproof: was ip + (bitCount>>3) <= iend-4 */
                 assert((bitCount >> 3) <= 3); /* For first condition to work */
                 ip += bitCount>>3;
                 bitCount &= 7;
@@ -167,7 +167,7 @@ size_t FSE_readNCount_body(short* normalizedCounter, unsigned* maxSVPtr, unsigne
             }
             if (charnum >= maxSV1) break;
 
-            if (LIKELY(ip <= iend-7) || (ip + (bitCount>>3) <= iend-4)) {
+            if (LIKELY(ip <= iend-7) || ((bitCount>>3) <= (iend-4) - ip)) {   /* genproof: was ip + (bitCount>>3) <= iend-4 */
                 ip += bitCount>>3;
                 bitCount &= 7;
             } else {

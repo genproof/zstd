@@ -69,6 +69,9 @@
 #include "zstd_decompress_internal.h"   /* ZSTD_DCtx */
 #include "zstd_ddict.h"  /* ZSTD_DDictDictContent */
 #include "zstd_decompress_block.h"   /* ZSTD_decompressBlock_internal */
+#ifndef GP_INPLACE   /* genproof: the in-place test, see ZSTD_decompressFrame */
+#define GP_INPLACE(ip, op, oend) ((ip) >= (op) && (ip) < (oend))
+#endif
 
 #if defined(ZSTD_LEGACY_SUPPORT) && (ZSTD_LEGACY_SUPPORT>=1)
 #  include "../legacy/zstd_legacy.h"
@@ -293,7 +296,11 @@ ZSTD_DCtx* ZSTD_initStaticDCtx(void *workspace, size_t workspaceSize)
 static ZSTD_DCtx* ZSTD_createDCtx_internal(ZSTD_customMem customMem) {
     if ((!customMem.customAlloc) ^ (!customMem.customFree)) return NULL;
 
+#ifdef GP_DEFINED_BYTES   /* genproof: zeroed (patch item 17) */
+    {   ZSTD_DCtx* const dctx = (ZSTD_DCtx*)ZSTD_customCalloc(sizeof(*dctx), customMem);
+#else
     {   ZSTD_DCtx* const dctx = (ZSTD_DCtx*)ZSTD_customMalloc(sizeof(*dctx), customMem);
+#endif
         if (!dctx) return NULL;
         dctx->customMem = customMem;
         ZSTD_initDCtx_internal(dctx);
@@ -993,7 +1000,7 @@ static size_t ZSTD_decompressFrame(ZSTD_DCtx* dctx,
         remainingSrcSize -= ZSTD_blockHeaderSize;
         RETURN_ERROR_IF(cBlockSize > remainingSrcSize, srcSize_wrong, "");
 
-        if (ip >= op && ip < oBlockEnd) {
+        if (GP_INPLACE(ip, op, oBlockEnd)) {  /* genproof: was ip >= op && ip < oBlockEnd */
             /* We are decompressing in-place. Limit the output pointer so that we
              * don't overwrite the block that we are currently reading. This will
              * fail decompression if the input & output pointers aren't spaced
@@ -1434,7 +1441,7 @@ size_t ZSTD_decompressContinue(ZSTD_DCtx* dctx, void* dst, size_t dstCapacity, c
 static size_t ZSTD_refDictContent(ZSTD_DCtx* dctx, const void* dict, size_t dictSize)
 {
     dctx->dictEnd = dctx->previousDstEnd;
-    dctx->virtualStart = (const char*)dict - ((const char*)(dctx->previousDstEnd) - (const char*)(dctx->prefixStart));
+    dctx->virtualStart = (const char*)dict - (dctx->previousDstEnd == NULL ? 0 : ((const char*)(dctx->previousDstEnd) - (const char*)(dctx->prefixStart)));  /* genproof: was dict - (previousDstEnd - prefixStart): NULL - NULL on a fresh context */
     dctx->prefixStart = dict;
     dctx->previousDstEnd = (const char*)dict + dictSize;
 #ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
@@ -1522,7 +1529,7 @@ ZSTD_loadDEntropy(ZSTD_entropyDTables_t* entropy,
         dictPtr += litlengthHeaderSize;
     }
 
-    RETURN_ERROR_IF(dictPtr+12 > dictEnd, dictionary_corrupted, "");
+    RETURN_ERROR_IF(dictEnd - dictPtr < 12, dictionary_corrupted, "");   /* genproof: was dictPtr+12 > dictEnd */
     {   int i;
         size_t const dictContentSize = (size_t)(dictEnd - (dictPtr+12));
         for (i=0; i<3; i++) {
@@ -2259,7 +2266,11 @@ size_t ZSTD_decompressStream(ZSTD_DStream* zds, ZSTD_outBuffer* output, ZSTD_inB
                             ZSTD_customFree(zds->inBuff, zds->customMem);
                             zds->inBuffSize = 0;
                             zds->outBuffSize = 0;
+#ifdef GP_DEFINED_BYTES   /* genproof: zeroed (patch item 17) */
+                            zds->inBuff = (char*)ZSTD_customCalloc(bufferSize, zds->customMem);
+#else
                             zds->inBuff = (char*)ZSTD_customMalloc(bufferSize, zds->customMem);
+#endif
                             RETURN_ERROR_IF(zds->inBuff == NULL, memory_allocation, "");
                         }
                         zds->inBuffSize = neededInBuffSize;

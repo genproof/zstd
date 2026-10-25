@@ -3598,7 +3598,7 @@ XXH64_update (XXH_NOESCAPE XXH64_state_t* state, XXH_NOESCAPE const void* input,
             state->memsize = 0;
         }
 
-        if (p+32 <= bEnd) {
+        if ((size_t)(bEnd - p) >= 32) {  /* genproof: was p+32 <= bEnd */
             const xxh_u8* const limit = bEnd - 32;
 
             do {

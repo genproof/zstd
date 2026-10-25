@@ -217,18 +217,18 @@ typedef enum {
 MEM_STATIC FORCE_INLINE_ATTR
 void ZSTD_wildcopy(void* dst, const void* src, size_t length, ZSTD_overlap_e const ovtype)
 {
-    ptrdiff_t diff = (BYTE*)dst - (const BYTE*)src;
     const BYTE* ip = (const BYTE*)src;
     BYTE* op = (BYTE*)dst;
     BYTE* const oend = op + length;
 
-    if (ovtype == ZSTD_overlap_src_before_dst && diff < WILDCOPY_VECLEN) {
+    /* genproof: was `ptrdiff_t diff = dst - src;` up front: src and dst are different objects unless ovtype says they overlap */
+    if (ovtype == ZSTD_overlap_src_before_dst && (BYTE*)dst - (const BYTE*)src < WILDCOPY_VECLEN) {
         /* Handle short offset copies. */
         do {
             COPY8(op, ip);
         } while (op < oend);
     } else {
-        assert(diff >= WILDCOPY_VECLEN || diff <= -WILDCOPY_VECLEN);
+        assert((BYTE*)dst - (const BYTE*)src >= WILDCOPY_VECLEN || (BYTE*)dst - (const BYTE*)src <= -WILDCOPY_VECLEN);   /* genproof: was diff (dst - src) */
         /* Separate out the first COPY16() call because the copy length is
          * almost certain to be short, so the branches have different
          * probabilities. Since it is almost certain to be short, only do
