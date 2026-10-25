@@ -267,7 +267,7 @@ MEM_STATIC size_t BIT_initDStream(BIT_DStream_t* bitD, const void* srcBuffer, si
     } else {
         bitD->ptr   = bitD->start;
         bitD->bitContainer = *(const BYTE*)(bitD->start);
-        switch(srcSize)
+        switch((unsigned)srcSize)   /* genproof: was switch(srcSize): VST has no switch rule for a long; here srcSize < 8 */
         {
         case 7: bitD->bitContainer += (BitContainerType)(((const BYTE*)(srcBuffer))[6]) << (sizeof(bitD->bitContainer)*8 - 16);
                 ZSTD_FALLTHROUGH;

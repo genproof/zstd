@@ -23,6 +23,7 @@
 
 /* custom memory allocation functions */
 
+#ifndef GP_NO_STRUCT_API   /* genproof: struct parameters (the compressor uses these) */
 MEM_STATIC void* ZSTD_customMalloc(size_t size, ZSTD_customMem customMem)
 {
     if (customMem.customAlloc)
@@ -54,6 +55,49 @@ MEM_STATIC void ZSTD_customFree(void* ptr, ZSTD_customMem customMem)
         else
             ZSTD_free(ptr);
     }
+}
+#endif
+
+/* genproof: the same helpers taking the allocator by pointer (VST: no struct parameters) */
+MEM_STATIC void* ZSTD_customMallocP(size_t size, const ZSTD_customMem* customMem)
+{
+    if (customMem->customAlloc)
+        return customMem->customAlloc(customMem->opaque, size);
+    return ZSTD_malloc(size);
+}
+
+MEM_STATIC void* ZSTD_customCallocP(size_t size, const ZSTD_customMem* customMem)
+{
+    if (customMem->customAlloc) {
+        /* calloc implemented as malloc+memset */
+        void* const ptr = customMem->customAlloc(customMem->opaque, size);
+
+        if (ptr == NULL) {
+            return NULL;
+        }
+
+        ZSTD_memset(ptr, 0, size);
+        return ptr;
+    }
+    return ZSTD_calloc(1, size);
+}
+
+MEM_STATIC void ZSTD_customFreeP(void* ptr, const ZSTD_customMem* customMem)
+{
+    if (ptr!=NULL) {
+        if (customMem->customFree)
+            customMem->customFree(customMem->opaque, ptr);
+        else
+            ZSTD_free(ptr);
+    }
+}
+
+/* genproof: a field-by-field copy (VST: no struct assignment) */
+MEM_STATIC void ZSTD_customMem_copy(ZSTD_customMem* dst, const ZSTD_customMem* src)
+{
+    dst->customAlloc = src->customAlloc;
+    dst->customFree = src->customFree;
+    dst->opaque = src->opaque;
 }
 
 #endif /* ZSTD_ALLOCATIONS_H */

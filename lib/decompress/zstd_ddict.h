@@ -36,6 +36,12 @@
 
 const void* ZSTD_DDict_dictContent(const ZSTD_DDict* ddict);
 size_t ZSTD_DDict_dictSize(const ZSTD_DDict* ddict);
+#ifdef GP_OWN_ENDS
+int ZSTD_DDict_gpIsCopy(const ZSTD_DDict* ddict);   /* genproof */
+#endif
+/* genproof: ZSTD_createDDict_advanced with the allocator by pointer (VST: no struct parameters) */
+ZSTD_DDict* ZSTD_createDDict_advancedP(const void* dict, size_t dictSize, ZSTD_dictLoadMethod_e dictLoadMethod,
+                                       ZSTD_dictContentType_e dictContentType, const ZSTD_customMem* customMem);
 
 void ZSTD_copyDDictParameters(ZSTD_DCtx* dctx, const ZSTD_DDict* ddict);
 

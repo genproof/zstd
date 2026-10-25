@@ -148,6 +148,9 @@ struct ZSTD_DCtx_s
     ZSTD_format_e format;
     ZSTD_forceIgnoreChecksum_e forceIgnoreChecksum;   /* User specified: if == 1, will ignore checksums in compressed frame. Default == 0 */
     U32 validateChecksum;         /* if == 1, will validate checksum. Is == 1 if (fParams.checksumFlag == 1) and (forceIgnoreChecksum == 0). */
+#ifdef GP_OWN_ENDS
+    int gpPrevOwn;                /* genproof: what previousDstEnd points into: 0, GP_OWN_COPY or GP_OWN_BUF (in padding) */
+#endif
     const BYTE* litPtr;
     ZSTD_customMem customMem;
     size_t litSize;
@@ -167,6 +170,9 @@ struct ZSTD_DCtx_s
     U32 dictID;
     int ddictIsCold;             /* if == 1 : dictionary is "new" for working context, and presumed "cold" (not in cpu cache) */
     ZSTD_dictUses_e dictUses;
+#ifdef GP_OWN_ENDS
+    int gpEndOwn;                /* genproof: what dictEnd points into (in padding) */
+#endif
     ZSTD_DDictHashSet* ddictSet;                    /* Hash set for multiple ddicts */
     ZSTD_refMultipleDDicts_e refMultipleDDicts;     /* User specified: if == 1, will allow references to multiple DDicts. Default == 0 (disabled) */
     int disableHufAsm;
@@ -191,6 +197,9 @@ struct ZSTD_DCtx_s
     U32 hostageByte;
     int noForwardProgress;
     ZSTD_bufferMode_e outBufferMode;
+#ifdef GP_OWN_ENDS
+    int gpDstOwn;                 /* genproof: what the dst of the ZSTD_decompressContinue in progress points into (in padding) */
+#endif
     ZSTD_outBuffer expectedOutBuffer;
 
     /* workspace */
@@ -250,5 +259,16 @@ size_t ZSTD_loadDEntropy(ZSTD_entropyDTables_t* entropy,
  *  This function cannot fail. */
 void ZSTD_checkContinuity(ZSTD_DCtx* dctx, const void* dst, size_t dstSize);
 
+
+/* genproof: the kinds of gpPrevOwn, gpEndOwn and gpDstOwn (0: the caller's memory or NULL), and an assignment to
+ * one of them; they exist only in the verified configuration (patch/GENPROOF-PATCH.md, "The ends of zstd's own
+ * objects") */
+#ifdef GP_OWN_ENDS
+#  define GP_OWN_COPY 1   /* zstd's copy of a dictionary */
+#  define GP_OWN_BUF 2    /* zstd's stream buffer */
+#  define GP_OWN(assignment) assignment
+#else
+#  define GP_OWN(assignment) (void)0
+#endif
 
 #endif /* ZSTD_DECOMPRESS_INTERNAL_H */

@@ -55,6 +55,14 @@ size_t ZSTD_DDict_dictSize(const ZSTD_DDict* ddict)
     return ddict->dictSize;
 }
 
+#ifdef GP_OWN_ENDS
+/* genproof: whether the content is zstd's own copy of the dictionary (see ZSTD_decompressBegin_usingDDict) */
+int ZSTD_DDict_gpIsCopy(const ZSTD_DDict* ddict)
+{
+    return ddict->dictBuffer != NULL;
+}
+#endif
+
 void ZSTD_copyDDictParameters(ZSTD_DCtx* dctx, const ZSTD_DDict* ddict)
 {
     DEBUGLOG(4, "ZSTD_copyDDictParameters");
@@ -65,6 +73,8 @@ void ZSTD_copyDDictParameters(ZSTD_DCtx* dctx, const ZSTD_DDict* ddict)
     dctx->virtualStart = ddict->dictContent;
     dctx->dictEnd = (const BYTE*)ddict->dictContent + ddict->dictSize;
     dctx->previousDstEnd = dctx->dictEnd;
+    GP_OWN(dctx->gpPrevOwn = ddict->dictBuffer != NULL ? GP_OWN_COPY : 0);   /* genproof: a dictionary made by copy */
+    GP_OWN(dctx->gpEndOwn = dctx->gpPrevOwn);   /* genproof: dictEnd is previousDstEnd */
 #ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
     dctx->dictContentBeginForFuzzing = dctx->prefixStart;
     dctx->dictContentEndForFuzzing = dctx->previousDstEnd;
@@ -127,7 +137,7 @@ static size_t ZSTD_initDDict_internal(ZSTD_DDict* ddict,
         ddict->dictContent = dict;
         if (!dict) dictSize = 0;
     } else {
-        void* const internalBuffer = ZSTD_customMalloc(dictSize, ddict->cMem);
+        void* const internalBuffer = ZSTD_customMallocP(dictSize, &ddict->cMem);
         ddict->dictBuffer = internalBuffer;
         ddict->dictContent = internalBuffer;
         if (!internalBuffer) return ERROR(memory_allocation);
@@ -142,16 +152,16 @@ static size_t ZSTD_initDDict_internal(ZSTD_DDict* ddict,
     return 0;
 }
 
-ZSTD_DDict* ZSTD_createDDict_advanced(const void* dict, size_t dictSize,
+ZSTD_DDict* ZSTD_createDDict_advancedP(const void* dict, size_t dictSize,   /* genproof: allocator by pointer */
                                       ZSTD_dictLoadMethod_e dictLoadMethod,
                                       ZSTD_dictContentType_e dictContentType,
-                                      ZSTD_customMem customMem)
+                                      const ZSTD_customMem* customMem)
 {
-    if ((!customMem.customAlloc) ^ (!customMem.customFree)) return NULL;
+    if ((!customMem->customAlloc) ^ (!customMem->customFree)) return NULL;
 
-    {   ZSTD_DDict* const ddict = (ZSTD_DDict*) ZSTD_customMalloc(sizeof(ZSTD_DDict), customMem);
+    {   ZSTD_DDict* const ddict = (ZSTD_DDict*) ZSTD_customMallocP(sizeof(ZSTD_DDict), customMem);
         if (ddict == NULL) return NULL;
-        ddict->cMem = customMem;
+        ZSTD_customMem_copy(&ddict->cMem, customMem);   /* genproof: was ddict->cMem = customMem */
         {   size_t const initResult = ZSTD_initDDict_internal(ddict,
                                             dict, dictSize,
                                             dictLoadMethod, dictContentType);
@@ -163,6 +173,16 @@ ZSTD_DDict* ZSTD_createDDict_advanced(const void* dict, size_t dictSize,
     }
 }
 
+#ifndef GP_NO_STRUCT_API   /* genproof: a struct parameter; the decoder calls ZSTD_createDDict_advancedP */
+ZSTD_DDict* ZSTD_createDDict_advanced(const void* dict, size_t dictSize,
+                                      ZSTD_dictLoadMethod_e dictLoadMethod,
+                                      ZSTD_dictContentType_e dictContentType,
+                                      ZSTD_customMem customMem)
+{
+    return ZSTD_createDDict_advancedP(dict, dictSize, dictLoadMethod, dictContentType, &customMem);
+}
+#endif
+
 /*! ZSTD_createDDict() :
 *   Create a digested dictionary, to start decompression without startup delay.
 *   `dict` content is copied inside DDict.
@@ -170,7 +190,7 @@ ZSTD_DDict* ZSTD_createDDict_advanced(const void* dict, size_t dictSize,
 ZSTD_DDict* ZSTD_createDDict(const void* dict, size_t dictSize)
 {
     ZSTD_customMem const allocator = { NULL, NULL, NULL };
-    return ZSTD_createDDict_advanced(dict, dictSize, ZSTD_dlm_byCopy, ZSTD_dct_auto, allocator);
+    return ZSTD_createDDict_advancedP(dict, dictSize, ZSTD_dlm_byCopy, ZSTD_dct_auto, &allocator);   /* genproof: by pointer */
 }
 
 /*! ZSTD_createDDict_byReference() :
@@ -180,7 +200,7 @@ ZSTD_DDict* ZSTD_createDDict(const void* dict, size_t dictSize)
 ZSTD_DDict* ZSTD_createDDict_byReference(const void* dictBuffer, size_t dictSize)
 {
     ZSTD_customMem const allocator = { NULL, NULL, NULL };
-    return ZSTD_createDDict_advanced(dictBuffer, dictSize, ZSTD_dlm_byRef, ZSTD_dct_auto, allocator);
+    return ZSTD_createDDict_advancedP(dictBuffer, dictSize, ZSTD_dlm_byRef, ZSTD_dct_auto, &allocator);   /* genproof: by pointer */
 }
 
 
@@ -212,9 +232,10 @@ const ZSTD_DDict* ZSTD_initStaticDDict(
 size_t ZSTD_freeDDict(ZSTD_DDict* ddict)
 {
     if (ddict==NULL) return 0;   /* support free on NULL */
-    {   ZSTD_customMem const cMem = ddict->cMem;
-        ZSTD_customFree(ddict->dictBuffer, cMem);
-        ZSTD_customFree(ddict, cMem);
+    {   ZSTD_customMem cMem;
+        ZSTD_customMem_copy(&cMem, &ddict->cMem);   /* genproof: was ZSTD_customMem const cMem = ddict->cMem */
+        ZSTD_customFreeP(ddict->dictBuffer, &cMem);
+        ZSTD_customFreeP(ddict, &cMem);
         return 0;
     }
 }

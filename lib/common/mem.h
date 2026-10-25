@@ -224,8 +224,20 @@ MEM_STATIC void MEM_write32(void* memPtr, U32 value)
 }
 
 MEM_STATIC void MEM_write64(void* memPtr, U64 value)
-{
+{   /* genproof: was ZSTD_memcpy(memPtr, &value, sizeof(value)) (VST cannot give the bytes of a stored U64) */
+#if defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__) && (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
     ZSTD_memcpy(memPtr, &value, sizeof(value));
+#else
+    BYTE* const p = (BYTE*)memPtr;
+    p[0] = (BYTE)value;
+    p[1] = (BYTE)(value >> 8);
+    p[2] = (BYTE)(value >> 16);
+    p[3] = (BYTE)(value >> 24);
+    p[4] = (BYTE)(value >> 32);
+    p[5] = (BYTE)(value >> 40);
+    p[6] = (BYTE)(value >> 48);
+    p[7] = (BYTE)(value >> 56);
+#endif
 }
 
 #endif /* MEM_FORCE_MEMORY_ACCESS */
