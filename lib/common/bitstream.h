@@ -267,7 +267,7 @@ MEM_STATIC size_t BIT_initDStream(BIT_DStream_t* bitD, const void* srcBuffer, si
     } else {
         bitD->ptr   = bitD->start;
         bitD->bitContainer = *(const BYTE*)(bitD->start);
-        switch(srcSize)
+        switch((unsigned)srcSize)   /* genproof: was switch(srcSize): VST has no switch rule for a long; here srcSize < 8 */
         {
         case 7: bitD->bitContainer += (BitContainerType)(((const BYTE*)(srcBuffer))[6]) << (sizeof(bitD->bitContainer)*8 - 16);
                 ZSTD_FALLTHROUGH;
@@ -399,7 +399,7 @@ MEM_STATIC BIT_DStream_status BIT_reloadDStream_internal(BIT_DStream_t* bitD)
  */
 MEM_STATIC BIT_DStream_status BIT_reloadDStreamFast(BIT_DStream_t* bitD)
 {
-    if (UNLIKELY(bitD->ptr < bitD->limitPtr))
+    if (UNLIKELY((size_t)(bitD->ptr - bitD->start) < sizeof(bitD->bitContainer)))  /* genproof: was bitD->ptr < bitD->limitPtr (limitPtr = start + 8 lies past a short stream) */
         return BIT_DStream_overflow;
     return BIT_reloadDStream_internal(bitD);
 }
@@ -421,7 +421,7 @@ FORCE_INLINE_TEMPLATE BIT_DStream_status BIT_reloadDStream(BIT_DStream_t* bitD)
 
     assert(bitD->ptr >= bitD->start);
 
-    if (bitD->ptr >= bitD->limitPtr) {
+    if ((size_t)(bitD->ptr - bitD->start) >= sizeof(bitD->bitContainer)) {  /* genproof: was bitD->ptr >= bitD->limitPtr */
         return BIT_reloadDStream_internal(bitD);
     }
     if (bitD->ptr == bitD->start) {
@@ -432,7 +432,7 @@ FORCE_INLINE_TEMPLATE BIT_DStream_status BIT_reloadDStream(BIT_DStream_t* bitD)
     /* start < ptr < limitPtr => cautious update */
     {   U32 nbBytes = bitD->bitsConsumed >> 3;
         BIT_DStream_status result = BIT_DStream_unfinished;
-        if (bitD->ptr - nbBytes < bitD->start) {
+        if ((size_t)(bitD->ptr - bitD->start) < nbBytes) {  /* genproof: was bitD->ptr - nbBytes < bitD->start */
             nbBytes = (U32)(bitD->ptr - bitD->start);  /* ptr > start */
             result = BIT_DStream_endOfBuffer;
         }

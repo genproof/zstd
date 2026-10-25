@@ -514,6 +514,14 @@ typedef struct
     unsigned char  nbBits;
 } FSE_decode_t;   /* size == U32 */
 
+/* genproof: a field-by-field copy (VST: no struct assignment) */
+MEM_STATIC void FSE_decode_copy(FSE_decode_t* dst, const FSE_decode_t* src)
+{
+    dst->newState = src->newState;
+    dst->symbol = src->symbol;
+    dst->nbBits = src->nbBits;
+}
+
 MEM_STATIC void FSE_initDState(FSE_DState_t* DStatePtr, BIT_DStream_t* bitD, const FSE_DTable* dt)
 {
     const void* ptr = dt;
@@ -525,13 +533,15 @@ MEM_STATIC void FSE_initDState(FSE_DState_t* DStatePtr, BIT_DStream_t* bitD, con
 
 MEM_STATIC BYTE FSE_peekSymbol(const FSE_DState_t* DStatePtr)
 {
-    FSE_decode_t const DInfo = ((const FSE_decode_t*)(DStatePtr->table))[DStatePtr->state];
+    FSE_decode_t DInfo;   /* genproof: was a struct copy of the table entry */
+    FSE_decode_copy(&DInfo, &((const FSE_decode_t*)(DStatePtr->table))[DStatePtr->state]);
     return DInfo.symbol;
 }
 
 MEM_STATIC void FSE_updateState(FSE_DState_t* DStatePtr, BIT_DStream_t* bitD)
 {
-    FSE_decode_t const DInfo = ((const FSE_decode_t*)(DStatePtr->table))[DStatePtr->state];
+    FSE_decode_t DInfo;   /* genproof: was a struct copy of the table entry */
+    FSE_decode_copy(&DInfo, &((const FSE_decode_t*)(DStatePtr->table))[DStatePtr->state]);
     U32 const nbBits = DInfo.nbBits;
     size_t const lowBits = BIT_readBits(bitD, nbBits);
     DStatePtr->state = DInfo.newState + lowBits;
@@ -539,7 +549,8 @@ MEM_STATIC void FSE_updateState(FSE_DState_t* DStatePtr, BIT_DStream_t* bitD)
 
 MEM_STATIC BYTE FSE_decodeSymbol(FSE_DState_t* DStatePtr, BIT_DStream_t* bitD)
 {
-    FSE_decode_t const DInfo = ((const FSE_decode_t*)(DStatePtr->table))[DStatePtr->state];
+    FSE_decode_t DInfo;   /* genproof: was a struct copy of the table entry */
+    FSE_decode_copy(&DInfo, &((const FSE_decode_t*)(DStatePtr->table))[DStatePtr->state]);
     U32 const nbBits = DInfo.nbBits;
     BYTE const symbol = DInfo.symbol;
     size_t const lowBits = BIT_readBits(bitD, nbBits);
@@ -552,7 +563,8 @@ MEM_STATIC BYTE FSE_decodeSymbol(FSE_DState_t* DStatePtr, BIT_DStream_t* bitD)
     unsafe, only works if no symbol has a probability > 50% */
 MEM_STATIC BYTE FSE_decodeSymbolFast(FSE_DState_t* DStatePtr, BIT_DStream_t* bitD)
 {
-    FSE_decode_t const DInfo = ((const FSE_decode_t*)(DStatePtr->table))[DStatePtr->state];
+    FSE_decode_t DInfo;   /* genproof: was a struct copy of the table entry */
+    FSE_decode_copy(&DInfo, &((const FSE_decode_t*)(DStatePtr->table))[DStatePtr->state]);
     U32 const nbBits = DInfo.nbBits;
     BYTE const symbol = DInfo.symbol;
     size_t const lowBits = BIT_readBitsFast(bitD, nbBits);

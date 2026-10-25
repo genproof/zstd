@@ -143,11 +143,17 @@ typedef size_t (*HUF_DecompressUsingDTableFn)(void *dst, size_t dstSize,
 /*-***************************/
 typedef struct { BYTE maxTableLog; BYTE tableType; BYTE tableLog; BYTE reserved; } DTableDesc;
 
-static DTableDesc HUF_getDTableDesc(const HUF_DTable* table)
+static void HUF_getDTableDesc(DTableDesc* dtd, const HUF_DTable* table)   /* genproof: out-pointer, was a struct return */
+{
+    ZSTD_memcpy(dtd, table, sizeof(*dtd));
+}
+
+/* genproof: the tableLog field of the descriptor (was HUF_getDTableDesc(table).tableLog) */
+static U32 HUF_getDTableLog(const HUF_DTable* table)
 {
     DTableDesc dtd;
-    ZSTD_memcpy(&dtd, table, sizeof(dtd));
-    return dtd;
+    HUF_getDTableDesc(&dtd, table);
+    return dtd.tableLog;
 }
 
 static size_t HUF_initFastDStream(BYTE const* ip) {
@@ -194,7 +200,7 @@ typedef void (*HUF_DecompressFastLoopFn)(HUF_DecompressFastArgs*);
 static size_t HUF_DecompressFastArgs_init(HUF_DecompressFastArgs* args, void* dst, size_t dstSize, void const* src, size_t srcSize, const HUF_DTable* DTable)
 {
     void const* dt = DTable + 1;
-    U32 const dtLog = HUF_getDTableDesc(DTable).tableLog;
+    U32 const dtLog = HUF_getDTableLog(DTable);   /* genproof */
 
     const BYTE* const istart = (const BYTE*)src;
 
@@ -405,7 +411,7 @@ size_t HUF_readDTableX1_wksp(HUF_DTable* DTable, const void* src, size_t srcSize
 
 
     /* Table header */
-    {   DTableDesc dtd = HUF_getDTableDesc(DTable);
+    {   DTableDesc dtd; HUF_getDTableDesc(&dtd, DTable);   /* genproof: out-pointer */
         U32 const maxTableLog = dtd.maxTableLog + 1;
         U32 const targetTableLog = MIN(maxTableLog, HUF_DECODER_FAST_TABLELOG);
         tableLog = HUF_rescaleStats(wksp->huffWeight, wksp->rankVal, nbSymbols, tableLog, targetTableLog);
@@ -471,7 +477,7 @@ size_t HUF_readDTableX1_wksp(HUF_DTable* DTable, const void* src, size_t srcSize
                     HUF_DEltX1 D;
                     D.byte = wksp->symbols[symbol + s];
                     D.nbBits = nbBits;
-                    dt[uStart] = D;
+                    dt[uStart].nbBits = D.nbBits; dt[uStart].byte = D.byte;   /* genproof: was dt[uStart] = D */
                     uStart += 1;
                 }
                 break;
@@ -480,8 +486,8 @@ size_t HUF_readDTableX1_wksp(HUF_DTable* DTable, const void* src, size_t srcSize
                     HUF_DEltX1 D;
                     D.byte = wksp->symbols[symbol + s];
                     D.nbBits = nbBits;
-                    dt[uStart+0] = D;
-                    dt[uStart+1] = D;
+                    dt[uStart+0].nbBits = D.nbBits; dt[uStart+0].byte = D.byte;   /* genproof: was dt[uStart+0] = D */
+                    dt[uStart+1].nbBits = D.nbBits; dt[uStart+1].byte = D.byte;   /* genproof: was dt[uStart+1] = D */
                     uStart += 2;
                 }
                 break;
@@ -585,7 +591,7 @@ HUF_decompress1X1_usingDTable_internal_body(
     const void* dtPtr = DTable + 1;
     const HUF_DEltX1* const dt = (const HUF_DEltX1*)dtPtr;
     BIT_DStream_t bitD;
-    DTableDesc const dtd = HUF_getDTableDesc(DTable);
+    DTableDesc dtd; HUF_getDTableDesc(&dtd, DTable);   /* genproof: out-pointer */
     U32 const dtLog = dtd.tableLog;
 
     CHECK_F( BIT_initDStream(&bitD, cSrc, cSrcSize) );
@@ -639,7 +645,7 @@ HUF_decompress4X1_usingDTable_internal_body(
         BYTE* op2 = opStart2;
         BYTE* op3 = opStart3;
         BYTE* op4 = opStart4;
-        DTableDesc const dtd = HUF_getDTableDesc(DTable);
+        DTableDesc dtd; HUF_getDTableDesc(&dtd, DTable);   /* genproof: out-pointer */
         U32 const dtLog = dtd.tableLog;
         U32 endSignal = 1;
 
@@ -902,11 +908,11 @@ HUF_DGEN(HUF_decompress1X1_usingDTable_internal)
 static size_t HUF_decompress4X1_usingDTable_internal(void* dst, size_t dstSize, void const* cSrc,
                     size_t cSrcSize, HUF_DTable const* DTable, int flags)
 {
-    HUF_DecompressUsingDTableFn fallbackFn = HUF_decompress4X1_usingDTable_internal_default;
-    HUF_DecompressFastLoopFn loopFn = HUF_decompress4X1_usingDTable_internal_fast_c_loop;
+    HUF_DecompressUsingDTableFn fallbackFn = &HUF_decompress4X1_usingDTable_internal_default;   /* genproof: & (VST: no bare function designator) */
+    HUF_DecompressFastLoopFn loopFn = &HUF_decompress4X1_usingDTable_internal_fast_c_loop;   /* genproof: & (VST) */
 
     if (ZSTD_USE_BMI2(flags & HUF_flags_bmi2)) {
-        fallbackFn = HUF_decompress4X1_usingDTable_internal_bmi2;
+        fallbackFn = &HUF_decompress4X1_usingDTable_internal_bmi2;   /* genproof: & (VST) */
 # if ZSTD_ENABLE_ASM_X86_64_BMI2
         if (!(flags & HUF_flags_disableAsm)) {
             loopFn = HUF_decompress4X1_usingDTable_internal_fast_asm_loop;
@@ -980,13 +986,11 @@ static U32 HUF_buildDEltX2U32(U32 symbol, U32 nbBits, U32 baseSeq, int level)
 /**
  * Constructs a HUF_DEltX2.
  */
-static HUF_DEltX2 HUF_buildDEltX2(U32 symbol, U32 nbBits, U32 baseSeq, int level)
+static void HUF_buildDEltX2(HUF_DEltX2* DElt, U32 symbol, U32 nbBits, U32 baseSeq, int level)   /* genproof: out-pointer, was a struct return */
 {
-    HUF_DEltX2 DElt;
     U32 const val = HUF_buildDEltX2U32(symbol, nbBits, baseSeq, level);
-    DEBUG_STATIC_ASSERT(sizeof(DElt) == sizeof(val));
-    ZSTD_memcpy(&DElt, &val, sizeof(val));
-    return DElt;
+    DEBUG_STATIC_ASSERT(sizeof(*DElt) == sizeof(val));
+    ZSTD_memcpy(DElt, &val, sizeof(val));
 }
 
 /**
@@ -1022,45 +1026,44 @@ static void HUF_fillDTableX2ForWeight(
     switch (length) {
     case 1:
         for (ptr = begin; ptr != end; ++ptr) {
-            HUF_DEltX2 const DElt = HUF_buildDEltX2(ptr->symbol, nbBits, baseSeq, level);
-            *DTableRank++ = DElt;
+            HUF_buildDEltX2(DTableRank, ptr->symbol, nbBits, baseSeq, level);   /* genproof: was DElt = ...; *DTableRank = DElt */
+            DTableRank++;
         }
         break;
     case 2:
         for (ptr = begin; ptr != end; ++ptr) {
-            HUF_DEltX2 const DElt = HUF_buildDEltX2(ptr->symbol, nbBits, baseSeq, level);
-            DTableRank[0] = DElt;
-            DTableRank[1] = DElt;
+            HUF_buildDEltX2(&DTableRank[0], ptr->symbol, nbBits, baseSeq, level);   /* genproof: was DElt = ...; DTableRank[0] = DTableRank[1] = DElt */
+            HUF_buildDEltX2(&DTableRank[1], ptr->symbol, nbBits, baseSeq, level);
             DTableRank += 2;
         }
         break;
     case 4:
         for (ptr = begin; ptr != end; ++ptr) {
-            U64 const DEltX2 = HUF_buildDEltX2U64(ptr->symbol, nbBits, baseSeq, level);
-            ZSTD_memcpy(DTableRank + 0, &DEltX2, sizeof(DEltX2));
-            ZSTD_memcpy(DTableRank + 2, &DEltX2, sizeof(DEltX2));
+            U32 const DElt2 = HUF_buildDEltX2U32(ptr->symbol, nbBits, baseSeq, level);
+            ZSTD_memcpy(DTableRank + 0, &DElt2, sizeof(DElt2)); ZSTD_memcpy(DTableRank + 0 + 1, &DElt2, sizeof(DElt2));   /* genproof: was one U64 copy of two cells */
+            ZSTD_memcpy(DTableRank + 2, &DElt2, sizeof(DElt2)); ZSTD_memcpy(DTableRank + 2 + 1, &DElt2, sizeof(DElt2));   /* genproof: was one U64 copy of two cells */
             DTableRank += 4;
         }
         break;
     case 8:
         for (ptr = begin; ptr != end; ++ptr) {
-            U64 const DEltX2 = HUF_buildDEltX2U64(ptr->symbol, nbBits, baseSeq, level);
-            ZSTD_memcpy(DTableRank + 0, &DEltX2, sizeof(DEltX2));
-            ZSTD_memcpy(DTableRank + 2, &DEltX2, sizeof(DEltX2));
-            ZSTD_memcpy(DTableRank + 4, &DEltX2, sizeof(DEltX2));
-            ZSTD_memcpy(DTableRank + 6, &DEltX2, sizeof(DEltX2));
+            U32 const DElt2 = HUF_buildDEltX2U32(ptr->symbol, nbBits, baseSeq, level);
+            ZSTD_memcpy(DTableRank + 0, &DElt2, sizeof(DElt2)); ZSTD_memcpy(DTableRank + 0 + 1, &DElt2, sizeof(DElt2));   /* genproof: was one U64 copy of two cells */
+            ZSTD_memcpy(DTableRank + 2, &DElt2, sizeof(DElt2)); ZSTD_memcpy(DTableRank + 2 + 1, &DElt2, sizeof(DElt2));   /* genproof: was one U64 copy of two cells */
+            ZSTD_memcpy(DTableRank + 4, &DElt2, sizeof(DElt2)); ZSTD_memcpy(DTableRank + 4 + 1, &DElt2, sizeof(DElt2));   /* genproof: was one U64 copy of two cells */
+            ZSTD_memcpy(DTableRank + 6, &DElt2, sizeof(DElt2)); ZSTD_memcpy(DTableRank + 6 + 1, &DElt2, sizeof(DElt2));   /* genproof: was one U64 copy of two cells */
             DTableRank += 8;
         }
         break;
     default:
         for (ptr = begin; ptr != end; ++ptr) {
-            U64 const DEltX2 = HUF_buildDEltX2U64(ptr->symbol, nbBits, baseSeq, level);
+            U32 const DElt2 = HUF_buildDEltX2U32(ptr->symbol, nbBits, baseSeq, level);
             HUF_DEltX2* const DTableRankEnd = DTableRank + length;
             for (; DTableRank != DTableRankEnd; DTableRank += 8) {
-                ZSTD_memcpy(DTableRank + 0, &DEltX2, sizeof(DEltX2));
-                ZSTD_memcpy(DTableRank + 2, &DEltX2, sizeof(DEltX2));
-                ZSTD_memcpy(DTableRank + 4, &DEltX2, sizeof(DEltX2));
-                ZSTD_memcpy(DTableRank + 6, &DEltX2, sizeof(DEltX2));
+                ZSTD_memcpy(DTableRank + 0, &DElt2, sizeof(DElt2)); ZSTD_memcpy(DTableRank + 0 + 1, &DElt2, sizeof(DElt2));   /* genproof: was one U64 copy of two cells */
+                ZSTD_memcpy(DTableRank + 2, &DElt2, sizeof(DElt2)); ZSTD_memcpy(DTableRank + 2 + 1, &DElt2, sizeof(DElt2));   /* genproof: was one U64 copy of two cells */
+                ZSTD_memcpy(DTableRank + 4, &DElt2, sizeof(DElt2)); ZSTD_memcpy(DTableRank + 4 + 1, &DElt2, sizeof(DElt2));   /* genproof: was one U64 copy of two cells */
+                ZSTD_memcpy(DTableRank + 6, &DElt2, sizeof(DElt2)); ZSTD_memcpy(DTableRank + 6 + 1, &DElt2, sizeof(DElt2));   /* genproof: was one U64 copy of two cells */
             }
         }
         break;
@@ -1080,30 +1083,31 @@ static void HUF_fillDTableX2Level2(HUF_DEltX2* DTable, U32 targetLog, const U32 
      */
     if (minWeight>1) {
         U32 const length = 1U << ((targetLog - consumedBits) & 0x1F /* quiet static-analyzer */);
-        U64 const DEltX2 = HUF_buildDEltX2U64(baseSeq, consumedBits, /* baseSeq */ 0, /* level */ 1);
+        U32 const DElt2 = HUF_buildDEltX2U32(baseSeq, consumedBits, /* baseSeq */ 0, /* level */ 1);
         int const skipSize = rankVal[minWeight];
         assert(length > 1);
         assert((U32)skipSize < length);
         switch (length) {
         case 2:
             assert(skipSize == 1);
-            ZSTD_memcpy(DTable, &DEltX2, sizeof(DEltX2));
+            ZSTD_memcpy(DTable, &DElt2, sizeof(DElt2)); ZSTD_memcpy(DTable + 1, &DElt2, sizeof(DElt2));   /* genproof: was one U64 copy of two cells */
             break;
         case 4:
             assert(skipSize <= 4);
-            ZSTD_memcpy(DTable + 0, &DEltX2, sizeof(DEltX2));
-            ZSTD_memcpy(DTable + 2, &DEltX2, sizeof(DEltX2));
+            ZSTD_memcpy(DTable + 0, &DElt2, sizeof(DElt2)); ZSTD_memcpy(DTable + 0 + 1, &DElt2, sizeof(DElt2));   /* genproof: was one U64 copy of two cells */
+            ZSTD_memcpy(DTable + 2, &DElt2, sizeof(DElt2)); ZSTD_memcpy(DTable + 2 + 1, &DElt2, sizeof(DElt2));   /* genproof: was one U64 copy of two cells */
             break;
         default:
             {
                 int i;
                 for (i = 0; i < skipSize; i += 8) {
-                    ZSTD_memcpy(DTable + i + 0, &DEltX2, sizeof(DEltX2));
-                    ZSTD_memcpy(DTable + i + 2, &DEltX2, sizeof(DEltX2));
-                    ZSTD_memcpy(DTable + i + 4, &DEltX2, sizeof(DEltX2));
-                    ZSTD_memcpy(DTable + i + 6, &DEltX2, sizeof(DEltX2));
+                    ZSTD_memcpy(DTable + i + 0, &DElt2, sizeof(DElt2)); ZSTD_memcpy(DTable + i + 0 + 1, &DElt2, sizeof(DElt2));   /* genproof: was one U64 copy of two cells */
+                    ZSTD_memcpy(DTable + i + 2, &DElt2, sizeof(DElt2)); ZSTD_memcpy(DTable + i + 2 + 1, &DElt2, sizeof(DElt2));   /* genproof: was one U64 copy of two cells */
+                    ZSTD_memcpy(DTable + i + 4, &DElt2, sizeof(DElt2)); ZSTD_memcpy(DTable + i + 4 + 1, &DElt2, sizeof(DElt2));   /* genproof: was one U64 copy of two cells */
+                    ZSTD_memcpy(DTable + i + 6, &DElt2, sizeof(DElt2)); ZSTD_memcpy(DTable + i + 6 + 1, &DElt2, sizeof(DElt2));   /* genproof: was one U64 copy of two cells */
                 }
             }
+            break;   /* genproof: the last case ended without break (VST's switch rule) */
         }
     }
 
@@ -1184,7 +1188,7 @@ size_t HUF_readDTableX2_wksp(HUF_DTable* DTable,
                              void* workSpace, size_t wkspSize, int flags)
 {
     U32 tableLog, maxW, nbSymbols;
-    DTableDesc dtd = HUF_getDTableDesc(DTable);
+    DTableDesc dtd; HUF_getDTableDesc(&dtd, DTable);   /* genproof: out-pointer */
     U32 maxTableLog = dtd.maxTableLog;
     size_t iSize;
     void* dtPtr = DTable+1;   /* force compiler to avoid strict-aliasing */
@@ -1317,7 +1321,7 @@ HUF_decodeStreamX2(BYTE* p, BIT_DStream_t* bitDPtr, BYTE* const pEnd,
     if ((size_t)(pEnd - p) >= sizeof(bitDPtr->bitContainer)) {
         if (dtLog <= 11 && MEM_64bits()) {
             /* up to 10 symbols at a time */
-            while ((BIT_reloadDStream(bitDPtr) == BIT_DStream_unfinished) & (p < pEnd-9)) {
+            while ((BIT_reloadDStream(bitDPtr) == BIT_DStream_unfinished) & ((size_t)(pEnd - p) > 9)) {   /* genproof: was p < pEnd-9 (p - 1 when pEnd - p = 8) */
                 HUF_DECODE_SYMBOLX2_0(p, bitDPtr);
                 HUF_DECODE_SYMBOLX2_0(p, bitDPtr);
                 HUF_DECODE_SYMBOLX2_0(p, bitDPtr);
@@ -1368,7 +1372,7 @@ HUF_decompress1X2_usingDTable_internal_body(
         BYTE* const oend = (BYTE*)ZSTD_maybeNullPtrAdd(ostart, (ptrdiff_t)dstSize);
         const void* const dtPtr = DTable+1;   /* force compiler to not use strict-aliasing */
         const HUF_DEltX2* const dt = (const HUF_DEltX2*)dtPtr;
-        DTableDesc const dtd = HUF_getDTableDesc(DTable);
+        DTableDesc dtd; HUF_getDTableDesc(&dtd, DTable);   /* genproof: out-pointer */
         HUF_decodeStreamX2(ostart, &bitD, oend, dt, dtd.tableLog);
     }
 
@@ -1421,7 +1425,7 @@ HUF_decompress4X2_usingDTable_internal_body(
         BYTE* op3 = opStart3;
         BYTE* op4 = opStart4;
         U32 endSignal = 1;
-        DTableDesc const dtd = HUF_getDTableDesc(DTable);
+        DTableDesc dtd; HUF_getDTableDesc(&dtd, DTable);   /* genproof: out-pointer */
         U32 const dtLog = dtd.tableLog;
 
         if (length4 > cSrcSize) return ERROR(corruption_detected);  /* overflow */
@@ -1732,11 +1736,11 @@ HUF_decompress4X2_usingDTable_internal_fast(
 static size_t HUF_decompress4X2_usingDTable_internal(void* dst, size_t dstSize, void const* cSrc,
                     size_t cSrcSize, HUF_DTable const* DTable, int flags)
 {
-    HUF_DecompressUsingDTableFn fallbackFn = HUF_decompress4X2_usingDTable_internal_default;
-    HUF_DecompressFastLoopFn loopFn = HUF_decompress4X2_usingDTable_internal_fast_c_loop;
+    HUF_DecompressUsingDTableFn fallbackFn = &HUF_decompress4X2_usingDTable_internal_default;   /* genproof: & (VST: no bare function designator) */
+    HUF_DecompressFastLoopFn loopFn = &HUF_decompress4X2_usingDTable_internal_fast_c_loop;   /* genproof: & (VST) */
 
     if (ZSTD_USE_BMI2(flags & HUF_flags_bmi2)) {
-        fallbackFn = HUF_decompress4X2_usingDTable_internal_bmi2;
+        fallbackFn = &HUF_decompress4X2_usingDTable_internal_bmi2;   /* genproof: & (VST) */
 # if ZSTD_ENABLE_ASM_X86_64_BMI2
         if (!(flags & HUF_flags_disableAsm)) {
             loopFn = HUF_decompress4X2_usingDTable_internal_fast_asm_loop;
@@ -1886,7 +1890,7 @@ size_t HUF_decompress1X_DCtx_wksp(HUF_DTable* dctx, void* dst, size_t dstSize,
 
 size_t HUF_decompress1X_usingDTable(void* dst, size_t maxDstSize, const void* cSrc, size_t cSrcSize, const HUF_DTable* DTable, int flags)
 {
-    DTableDesc const dtd = HUF_getDTableDesc(DTable);
+    DTableDesc dtd; HUF_getDTableDesc(&dtd, DTable);   /* genproof: out-pointer */
 #if defined(HUF_FORCE_DECOMPRESS_X1)
     (void)dtd;
     assert(dtd.tableType == 0);
@@ -1917,7 +1921,7 @@ size_t HUF_decompress1X1_DCtx_wksp(HUF_DTable* dctx, void* dst, size_t dstSize, 
 
 size_t HUF_decompress4X_usingDTable(void* dst, size_t maxDstSize, const void* cSrc, size_t cSrcSize, const HUF_DTable* DTable, int flags)
 {
-    DTableDesc const dtd = HUF_getDTableDesc(DTable);
+    DTableDesc dtd; HUF_getDTableDesc(&dtd, DTable);   /* genproof: out-pointer */
 #if defined(HUF_FORCE_DECOMPRESS_X1)
     (void)dtd;
     assert(dtd.tableType == 0);
